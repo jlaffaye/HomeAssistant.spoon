@@ -1,6 +1,14 @@
 # HomeAssistant.spoon
 
+## Usage
+
+Checkout this repository in your hammerspoon config directory, under `Spoons/`.
+
+Then, in your `init.lua`
+
 ```lua
+hs.spoons.use("HomeAssistant") -- include the spoon
+
 ha = spoon.HomeAssistant:configure({
     entity_name = "my_laptop",
     url = "http://192.168.0.42:8123",
