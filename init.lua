@@ -21,6 +21,7 @@ obj.token = nil
 
 function obj:init()
     obj.logger = hs.logger.new(obj.name, "debug")
+    obj.microphone_device_uid = hs.audiodevice.defaultInputDevice():uid()
 end
 
 function obj:configure(config)
@@ -50,6 +51,11 @@ function obj:validate_config()
         obj.logger.e("you must set token before start")
         error("token expected", 2)
     end
+
+    if not hs.audiodevice.findInputByUID(obj.microphone_device_uid) then
+        obj.logger.ef("can not find input device with microphone_device_uid=%s", obj.microphone_device_uid)
+        error("bad microphone_device_uid", 2)
+    end
 end
 
 --- HomeAssistant:start()
@@ -72,7 +78,7 @@ function obj:start()
 
     obj.on_wifi_event()
     obj.on_battery_event()
-    obj.send_audio_device_status()
+    obj.send_audio_device_status(obj.microphone_device_uid)
 
     obj.caffeinate_watcher =  hs.caffeinate.watcher.new(obj.on_caffeinate_event):start()
     obj.battery_watcher = hs.battery.watcher.new(obj.on_battery_event):start()
@@ -113,15 +119,16 @@ end
 -- Private functions
 
 function obj:startAudioDeviceWatcher()
-    local defaultInputDevice = hs.audiodevice.defaultInputDevice()
+    local inputDevice = hs.audiodevice.findInputByUID(obj.microphone_device_uid)
 
-    if defaultInputDevice:watcherIsRunning() then
-        log.d("watcher is already running")
+    if inputDevice:watcherIsRunning() then
+        obj.logger.df("watcher is already running on input device %s", inputDevice:name())
         return
     end
 
-    defaultInputDevice:watcherCallback(obj.on_audio_device_event)
-    defaultInputDevice:watcherStart()
+    inputDevice:watcherCallback(obj.on_audio_device_event)
+    inputDevice:watcherStart()
+    obj.logger.df("started watcher on input device %s", inputDevice:name())
 end
 
 SYSTEM = {
@@ -148,12 +155,12 @@ LOCKED = {
 
 function obj.on_audio_device_event(device_uuid, event, channel)
     if event == "gone" then
-        obj.send_audio_device_status()
+        obj.send_audio_device_status(device_uuid)
     end
 end
 
-function obj.send_audio_device_status()
-    local input_device = hs.audiodevice.defaultInputDevice()
+function obj.send_audio_device_status(device_uuid)
+    local input_device = hs.audiodevice.findInputByUID(device_uuid)
     local in_use = "off"
     local mic_icon = "mdi:microphone-off"
     if input_device:inUse() then
