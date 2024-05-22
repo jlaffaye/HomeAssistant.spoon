@@ -22,6 +22,7 @@ obj.token = nil
 function obj:init()
     obj.logger = hs.logger.new(obj.name, "debug")
     obj.microphone_device_uid = hs.audiodevice.defaultInputDevice():uid()
+    obj.local_state = {}
 end
 
 function obj:configure(config)
@@ -282,12 +283,6 @@ end
 -- Home Assistant REST API ---
 ------------------------------
 
-function obj.http_callback(status, body, headers)
-    if status <=0 or status >= 300 then
-        obj.logger.e(status, body, hs.inspect(headers))
-    end
-end
-
 function obj.set_state(conf, s)
     local data = { state = s}
     if conf.attributes then
@@ -295,13 +290,17 @@ function obj.set_state(conf, s)
     end
 
     local entity = string.format(conf.entity, obj.entity_name)
-
+    local api = "states/" .. entity
     obj.logger.df("setting %s to %s", entity, s)
 
-    obj.call_hass("states/" .. entity, data)
+    -- Store the state locally so retries have access to the last state
+    -- This is to handle the case where the set_state call A fails, then another call B succeeds, but we retry A overwriting the data set by B
+    obj.local_state[api] = data
+
+    obj.call_hass(api, data, 1)
 end
 
-function obj.call_hass(api, data)
+function obj.call_hass(api, data, retry)
     local headers = {
         ["Authorization"]= string.format("Bearer %s", obj.token),
         ["Content-Type"]= "application/json",
@@ -310,7 +309,19 @@ function obj.call_hass(api, data)
     local payload = hs.json.encode(data)
 
     local url = string.format("%s/api/%s", obj.url, api)
-    hs.http.asyncPost(url, payload, headers, obj.http_callback)
+    hs.http.asyncPost(url, payload, headers, function(status, body, headers)
+        if status <=0 or status >= 300 then
+            retry = retry - 1
+            if retry < 0 then
+                obj.logger.e(status, body, hs.inspect(headers))
+                return
+            end
+            hs.timer.doAfter(1, function ()
+                obj.logger.f("retrying call to %s", api)
+                obj.call_hass(api, obj.local_state[api], retry)
+            end)
+        end
+    end)
 end
 
 return obj
