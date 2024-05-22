@@ -283,7 +283,7 @@ end
 ------------------------------
 
 function obj.http_callback(status, body, headers)
-    if status >= 300 then
+    if status <=0 or status >= 300 then
         obj.logger.e(status, body, hs.inspect(headers))
     end
 end
