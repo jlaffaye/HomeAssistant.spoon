@@ -9,7 +9,7 @@ end
 
 -- Metadata
 obj.name = "HomeAssistant"
-obj.version = "0.1"
+obj.version = "0.2"
 obj.author = "Julien Laffaye"
 obj.homepage = "https://github.com/jlaffaye/HomeAssistant.spoon"
 obj.license = "MIT - https://opensource.org/licenses/MIT"
@@ -21,14 +21,14 @@ obj.token = nil
 
 function obj:init()
     obj.logger = hs.logger.new(obj.name, "debug")
-    obj.microphone_device_uid = hs.audiodevice.defaultInputDevice():uid()
+    obj.audio_input_devices = {}
     obj.local_state = {}
 end
 
 function obj:configure(config)
     for k,v in pairs(config) do
         self[k] = v
-     end
+    end
     return self
 end
 
@@ -52,11 +52,6 @@ function obj:validate_config()
         obj.logger.e("you must set token before start")
         error("token expected", 2)
     end
-
-    if not hs.audiodevice.findInputByUID(obj.microphone_device_uid) then
-        obj.logger.ef("can not find input device with microphone_device_uid=%s", obj.microphone_device_uid)
-        error("bad microphone_device_uid", 2)
-    end
 end
 
 --- HomeAssistant:start()
@@ -71,6 +66,11 @@ end
 function obj:start()
     obj:validate_config()
 
+    obj.caffeinate_watcher =  hs.caffeinate.watcher.new(obj.on_caffeinate_event):start()
+    obj.battery_watcher = hs.battery.watcher.new(obj.on_battery_event):start()
+    obj.wifi_watcher = hs.wifi.watcher.new(obj.on_wifi_event):start()
+    obj:startAudioInputDevicesWatcher()
+
     -- Send initial state
     obj.set_state(SYSTEM, "on")
     obj.set_state(SCREENS, "on")
@@ -79,12 +79,7 @@ function obj:start()
 
     obj.on_wifi_event()
     obj.on_battery_event()
-    obj.send_audio_device_status(obj.microphone_device_uid)
-
-    obj.caffeinate_watcher =  hs.caffeinate.watcher.new(obj.on_caffeinate_event):start()
-    obj.battery_watcher = hs.battery.watcher.new(obj.on_battery_event):start()
-    obj.wifi_watcher = hs.wifi.watcher.new(obj.on_wifi_event):start()
-    obj:startAudioDeviceWatcher()
+    obj.send_audio_input_device_status()
 
     return self
 end
@@ -114,22 +109,29 @@ function obj:stop()
         self.wifi_watcher = nil
     end
 
+    for uid, inputDevice in pairs(self.audio_input_devices) do
+        inputDevice:stopWatcher()
+    end
+
     return self
 end
 
 -- Private functions
 
-function obj:startAudioDeviceWatcher()
-    local inputDevice = hs.audiodevice.findInputByUID(obj.microphone_device_uid)
+function obj:startAudioInputDevicesWatcher()
+    for i, inputDevice in pairs(hs.audiodevice.allInputDevices()) do
+        -- store the device so our callback is not garbage collected
+        self.audio_input_devices[inputDevice:uid()] = inputDevice
 
-    if inputDevice:watcherIsRunning() then
-        obj.logger.df("watcher is already running on input device %s", inputDevice:name())
-        return
+        if inputDevice:watcherIsRunning() then
+            obj.logger.df("watcher is already running on input device %s", inputDevice:name())
+            return
+        end
+
+        inputDevice:watcherCallback(obj.on_audio_input_device_event)
+        inputDevice:watcherStart()
+        obj.logger.df("started watcher on input device %s", inputDevice:name())
     end
-
-    inputDevice:watcherCallback(obj.on_audio_device_event)
-    inputDevice:watcherStart()
-    obj.logger.df("started watcher on input device %s", inputDevice:name())
 end
 
 SYSTEM = {
@@ -154,26 +156,30 @@ LOCKED = {
     },
 }
 
-function obj.on_audio_device_event(device_uuid, event, channel)
+function obj.on_audio_input_device_event(device_uuid, event, channel)
     if event == "gone" then
-        obj.send_audio_device_status(device_uuid)
+        obj.send_audio_input_device_status()
     end
 end
 
-function obj.send_audio_device_status(device_uuid)
-    local input_device = hs.audiodevice.findInputByUID(device_uuid)
+function obj.send_audio_input_device_status()
     local in_use = "off"
     local mic_icon = "mdi:microphone-off"
-    if input_device:inUse() then
-        in_use = "on"
-        mic_icon = "mdi:microphone"
+    local microphone = "n/a"
+
+    for uid, inputDevice in pairs(obj.audio_input_devices) do
+        if inputDevice:inUse() then
+            in_use = "on"
+            mic_icon = "mdi:microphone"
+            microphone = inputDevice:name()
+        end
     end
 
     obj.set_state({
         entity = "binary_sensor.%s_microphone_in_use",
         attributes = {
             icon = mic_icon,
-            microphone = input_device:name(),
+            microphone = microphone,
         },
     }, in_use)
 end
