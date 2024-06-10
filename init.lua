@@ -9,7 +9,7 @@ end
 
 -- Metadata
 obj.name = "HomeAssistant"
-obj.version = "0.2"
+obj.version = "0.2.1"
 obj.author = "Julien Laffaye"
 obj.homepage = "https://github.com/jlaffaye/HomeAssistant.spoon"
 obj.license = "MIT - https://opensource.org/licenses/MIT"
@@ -303,7 +303,7 @@ function obj.set_state(conf, s)
     -- This is to handle the case where the set_state call A fails, then another call B succeeds, but we retry A overwriting the data set by B
     obj.local_state[api] = data
 
-    obj.call_hass(api, data, 1)
+    obj.call_hass(api, data, 5)
 end
 
 function obj.call_hass(api, data, retry)
