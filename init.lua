@@ -81,6 +81,8 @@ function obj:start()
     obj.on_battery_event()
     obj.send_audio_input_device_status()
 
+    obj.timer = hs.timer.doEvery(300, obj.resend_all_states)
+
     return self
 end
 
@@ -111,6 +113,11 @@ function obj:stop()
 
     for uid, inputDevice in pairs(self.audio_input_devices) do
         inputDevice:stopWatcher()
+    end
+
+    if self.timer then
+        self.timer.stop()
+        self.timer = nil
     end
 
     return self
@@ -301,9 +308,21 @@ function obj.set_state(conf, s)
 
     -- Store the state locally so retries have access to the last state
     -- This is to handle the case where the set_state call A fails, then another call B succeeds, but we retry A overwriting the data set by B
-    obj.local_state[api] = data
+    obj.local_state[api] = {
+        ["state"] = data,
+        ["last_successful_at"] = 0,
+    }
 
-    obj.call_hass(api, data, 5)
+    obj.call_hass(api, obj.local_state[api], 5)
+end
+
+function obj.resend_all_states()
+    for api, data in pairs(obj.local_state) do
+        diff = hs.timer.secondsSinceEpoch() - data["last_successful_at"]
+        if diff >= 60 then
+            obj.call_hass(api, data, 5)
+        end
+    end
 end
 
 function obj.call_hass(api, data, retry)
@@ -312,7 +331,7 @@ function obj.call_hass(api, data, retry)
         ["Content-Type"] = "application/json",
     }
 
-    local payload = hs.json.encode(data)
+    local payload = hs.json.encode(data["state"])
 
     local url = string.format("%s/api/%s", obj.url, api)
     hs.http.asyncPost(url, payload, headers, function(status, body, headers)
@@ -326,6 +345,9 @@ function obj.call_hass(api, data, retry)
                 obj.logger.f("retrying call to %s", api)
                 obj.call_hass(api, obj.local_state[api], retry)
             end)
+        end
+        if status >= 200 and status < 300 then
+            data["last_successful_at"] = hs.timer.secondsSinceEpoch()
         end
     end)
 end
