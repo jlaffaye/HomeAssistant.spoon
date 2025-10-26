@@ -26,7 +26,7 @@ function obj:init()
 end
 
 function obj:configure(config)
-    for k,v in pairs(config) do
+    for k, v in pairs(config) do
         self[k] = v
     end
     return self
@@ -66,7 +66,7 @@ end
 function obj:start()
     obj:validate_config()
 
-    obj.caffeinate_watcher =  hs.caffeinate.watcher.new(obj.on_caffeinate_event):start()
+    obj.caffeinate_watcher = hs.caffeinate.watcher.new(obj.on_caffeinate_event):start()
     obj.battery_watcher = hs.battery.watcher.new(obj.on_battery_event):start()
     obj.wifi_watcher = hs.wifi.watcher.new(obj.on_wifi_event):start()
     obj:startAudioInputDevicesWatcher()
@@ -186,31 +186,31 @@ end
 
 function obj.on_caffeinate_event(event)
     local events = {
-        [hs.caffeinate.watcher.screensaverDidStart] = function ()
+        [hs.caffeinate.watcher.screensaverDidStart] = function()
             obj.set_state(SCREENSAVER, "on")
         end,
-        [hs.caffeinate.watcher.screensaverDidStop]= function ()
+        [hs.caffeinate.watcher.screensaverDidStop] = function()
             obj.set_state(SCREENSAVER, "off")
         end,
-        [hs.caffeinate.watcher.screensDidLock] = function ()
+        [hs.caffeinate.watcher.screensDidLock] = function()
             obj.set_state(LOCKED, "off")
         end,
-        [hs.caffeinate.watcher.screensDidSleep] = function ()
+        [hs.caffeinate.watcher.screensDidSleep] = function()
             obj.set_state(SCREENS, "off")
         end,
-        [hs.caffeinate.watcher.screensDidUnlock] = function ()
+        [hs.caffeinate.watcher.screensDidUnlock] = function()
             obj.set_state(LOCKED, "on")
         end,
-        [hs.caffeinate.watcher.screensDidWake] = function ()
+        [hs.caffeinate.watcher.screensDidWake] = function()
             obj.set_state(SCREENS, "on")
         end,
-        [hs.caffeinate.watcher.systemDidWake] = function ()
+        [hs.caffeinate.watcher.systemDidWake] = function()
             obj.set_state(SYSTEM, "on")
         end,
-        [hs.caffeinate.watcher.systemWillPowerOff] = function ()
+        [hs.caffeinate.watcher.systemWillPowerOff] = function()
             obj.set_state(SYSTEM, "off")
         end,
-        [hs.caffeinate.watcher.systemWillSleep] = function ()
+        [hs.caffeinate.watcher.systemWillSleep] = function()
             obj.set_state(SYSTEM, "off")
         end,
     }
@@ -290,7 +290,7 @@ end
 ------------------------------
 
 function obj.set_state(conf, s)
-    local data = { state = s}
+    local data = { state = s }
     if conf.attributes then
         data["attributes"] = conf.attributes
     end
@@ -308,21 +308,21 @@ end
 
 function obj.call_hass(api, data, retry)
     local headers = {
-        ["Authorization"]= string.format("Bearer %s", obj.token),
-        ["Content-Type"]= "application/json",
+        ["Authorization"] = string.format("Bearer %s", obj.token),
+        ["Content-Type"] = "application/json",
     }
 
     local payload = hs.json.encode(data)
 
     local url = string.format("%s/api/%s", obj.url, api)
     hs.http.asyncPost(url, payload, headers, function(status, body, headers)
-        if status <=0 or status >= 300 then
+        if status <= 0 or status >= 300 then
             retry = retry - 1
             if retry < 0 then
                 obj.logger.e(status, body, hs.inspect(headers))
                 return
             end
-            hs.timer.doAfter(1, function ()
+            hs.timer.doAfter(1, function()
                 obj.logger.f("retrying call to %s", api)
                 obj.call_hass(api, obj.local_state[api], retry)
             end)
